@@ -1,0 +1,491 @@
+# ModelAdmin
+
+`ModelAdmin` is the abstraction you actually write: one subclass per
+resource, declaring how it should be administered and how to read/
+write it. This is the reference for that contract — identity, fields,
+the CRUD lifecycle, search/filter/ordering, relations, and Actions.
+
+## Declaring one
+
+Class attributes plus `Field` instances:
+
+```python
+from polyadmin import ModelAdmin, EmailField, BooleanField
+from polyadmin.core.field import ForeignKeyField
+from polyadmin.core.relation import Relation
+
+class UserAdmin(ModelAdmin):
+    model = User
+    list_display = ("id", "email", "is_active", "organization")
+    form_fields = ("email", "is_active", "organization")
+    search_fields = ("email",)
+    fields = (
+        EmailField("email", required=True),
+        BooleanField("is_active", default=True),
+        ForeignKeyField("organization", relation=Relation(
+            "organization", target="organizations", display_field="name",
+        )),
+    )
+
+    def get_queryset(self):
+        return self.repository.list()
+
+    def get_object(self, pk):
+        return self.repository.get(int(pk))
+
+    def create(self, data):
+        return self.repository.create(**data)
+
+    def update(self, obj, data):
+        return self.repository.update(obj, **data)
+
+    def delete(self, obj):
+        self.repository.delete(obj)
+```
+
+## Identity
+
+- `slug` — the URL segment (`/admin/{slug}`); defaults to the
+  lowercased, pluralized model name (`User` → `users`).
+- `get_verbose_name()` — the human-readable name shown in the sidebar,
+  breadcrumbs, and page titles; defaults to the model name as declared.
+- `get_pk(obj)` — the primary key used to build this object's URL;
+  defaults to reading an `id` attribute.
+- `category` — optional sidebar grouping; ModelAdmins (and custom
+  `AdminPage`s) sharing a category collapse into one collapsible
+  accordion section, in first-registration-appearance order. Unset
+  (`None`) keeps a flat top-level nav link. Also prepended to the
+  breadcrumb trail when set. See
+  [`routing.md`](routing.md#sidebar-categories).
+- `icon` — the sidebar-nav icon shown next to this ModelAdmin's own
+  link, flat or nested inside a category's accordion; defaults to
+  `"collection"`. See [`routing.md`](routing.md#sidebar-categories).
+
+## Fields
+
+A field's `name` must match an attribute on your model object. Every
+field the resource uses anywhere (`list_display`, `form_fields`,
+`search_fields`) needs a `Field` declaration; a plain untyped `Field` is
+filled in automatically for any name without one, so declaring one
+explicitly is only required when you need type-specific behavior
+(validation, a `<select>` of choices, a relation).
+
+Built-in field types: `StringField`, `TextField`, `IntegerField`,
+`DecimalField`, `BooleanField`, `DateField`, `DateTimeField`,
+`EmailField`, `URLField`, `UUIDField`, `EnumField`, `JSONField`,
+`PasswordField`, `ForeignKeyField`, `OneToOneField`, `ManyToManyField`.
+
+Common keyword arguments: `required=`, `readonly=`, `disabled=`,
+`default=`, `help_text=`, `placeholder=`, `choices=`, `relation=`.
+
+## Default ordering
+
+Without one, rows arrive in whatever order the data source returned —
+which for a dict-backed store is not even stable between two requests.
+Declare a default and the list has a defined order until the user sorts
+it themselves:
+
+```python
+ordering = "-created_at"   # "-" for descending, like ?sort=
+```
+
+An explicit `?sort=` from the user always wins. The default is resolved
+into the request before the query runs, so a `list_page` implementation
+is told about it too rather than having to know the ModelAdmin's own
+configuration.
+
+## Acting on more than one page
+
+A bulk action normally receives the rows the user ticked, which can only
+ever be rows on the current page. When a whole page is selected the
+table offers **"Select all N matching"**, which posts the current
+search/filters instead of a pk list; the framework then resolves that
+same query server-side and hands the action every matching record.
+
+Nothing is needed to enable it. Two things are worth knowing when
+writing an action: it may now receive far more objects than a page's
+worth, and the set is exactly what the user was looking at — filters
+included, pagination excluded.
+
+## Scaling the list: resolving the query yourself
+
+By default `get_queryset` returns **everything**, and the framework
+applies search, filters, ordering and pagination in memory over that
+result. That is the right trade for a small collection and the reason
+getting started needs one method — but it means page 40 of a million
+rows costs the same as page 1, and filters make it worse rather than
+better, since they run after the whole set has been loaded.
+
+A ModelAdmin backed by a real data source can take over the whole query
+by defining one optional method:
+
+```python
+def list_page(self, list_request):
+    offset, limit = list_request.window()   # limit 0 means "no limit"
+    # ... one query: WHERE from list_request.search/.filters,
+    #     ORDER BY from list_request.ordering, LIMIT/OFFSET from the window
+    return rows, total
+```
+
+Return the rows for the requested window, and the **total matching rows
+before it** — that count is what pagination displays.
+
+Three things are worth knowing:
+
+- **It is all-or-nothing.** When this method exists the framework
+  applies nothing further: it cannot tell what you already did, and
+  re-applying would filter twice. Honour every part of the request, or
+  the UI will show controls that do nothing.
+- **It serves every list query, not just the list page.** Both exports,
+  the autocomplete lookup and non-autocomplete relation option lists all
+  go through it. They are distinguished purely by the window: the list
+  view asks for one page, the lookup for a capped page, and an export
+  or an option list sets `unlimited`, which yields a limit of 0. If you
+  ignore the window, an export still works but the autocomplete will
+  return your whole table.
+- **`get_queryset` is not called at all** for such an admin. It can stay
+  as-is for other callers, or become a stub.
+
+Not defining it changes nothing: the in-memory path is unchanged.
+
+## Grouping the form: fieldsets
+
+By default a form is one flat column in `form_fields` order. Past about
+eight fields that stops being readable, so fields can be grouped into
+titled sections — Django's `fieldsets`:
+
+```python
+fieldsets = [
+    Fieldset(fields=["email", "is_active"]),
+    Fieldset(title="Membership", description="Where this user belongs.",
+             fields=["plan", "organization"]),
+    Fieldset(title="Advanced", fields=["api_key"], collapsed=True),
+]
+```
+
+Three rules are worth knowing:
+
+- **Declaring fieldsets replaces the flat field list.** The groups *are*
+  the form's fields, in the order given, so `get_form_fields()` reports
+  the flattened result and the handler parses exactly what was rendered.
+  `form_fields` is ignored once fieldsets are set — one source of truth,
+  not two.
+- **A group with no title renders bare** — no header, no border. That is
+  what makes the default case (no fieldsets declared, one implicit
+  unnamed group) identical to the flat form, and it lets you keep a few
+  lead fields ungrouped above the titled sections.
+- **A titled group is always collapsible.** `collapsed` only decides
+  whether it *starts* closed; the reader can always open it.
+
+## Read-only fields
+
+A field can be shown on the form as a value rather than a control:
+
+```python
+readonly_fields = ["created_at"]
+```
+
+**This is enforced, not just presented.** The field renders with no
+input, and the handler skips the name when reading the posted form — so
+a crafted POST naming it cannot write it. (A `required` read-only field
+is also excluded from validation, since the form never sends it.)
+
+For the common "editable when created, frozen afterwards" case, override
+the resolver instead of the list — it receives the object being edited,
+and `None` when creating:
+
+```python
+def get_readonly_fields(self, obj=None):
+    return [] if obj is None else ["email"]
+```
+
+Note this is a different thing from a `Field`'s own `readonly` option,
+which marks a native input `readonly` but still posts its value.
+
+## The CRUD lifecycle
+
+Five hooks, all of which you implement against your own storage — core
+never issues a database query:
+
+| Hook | Called for |
+|---|---|
+| `get_queryset()` | list view, before search/filter/order/paginate |
+| `get_object(pk)` | detail, edit, delete, and Action target resolution |
+| `create(data)` | POST create, after validation passes |
+| `update(obj, data)` | POST edit, after validation passes |
+| `delete(obj)` | POST/DELETE delete |
+
+Any of these five, plus `list_page`, may be `async def` instead of a plain
+function -- useful for a ModelAdmin backed by an async HTTP client. The
+FastAPI adapter awaits whichever ones are coroutine functions and calls the
+rest directly, so a ModelAdmin may mix sync and async hooks freely. This
+holds on every path, including a ModelAdmin used as a relation target
+(`ForeignKeyField`, `ManyToManyField`, `autocomplete_fields`, relation
+filters) or as an `Inline` child.
+
+`data` is a `dict[str, Any]` keyed by field name, already coerced to
+each field's Python type (an `IntegerField` submission arrives as `int`,
+a `BooleanField` as `bool`, and so on).
+
+## Validation
+
+`validate(data)` runs every `form_fields` field's own validators
+(required-ness first, then any custom `validators=`) and returns a
+`dict[str, list[str]]` of field name → error messages, already
+translated into the request's locale. A non-empty result re-renders
+the form with those errors instead of calling `create`/`update` —
+those are only ever called with data that already passed validation.
+
+A field validator is a plain callable taking the value and raising
+`ValueError` on a bad one; its message is translated the same way the
+built-in required-field message is — a static English message
+(`raise ValueError("Enter a valid number.")`) only needs a host catalog
+entry, since the framework runs it through `gettext` when the form
+re-renders. See [`i18n.md`](i18n.md#in-code).
+
+## Search, filters, ordering
+
+- `search_fields` — a case-insensitive substring match against these
+  fields, OR'd together, driven by the list view's search box.
+- `filters` — a sequence of `Filter` objects (`BooleanFilter(name)`,
+  `ChoiceFilter(name, choices=[...])`). They render behind a single
+  **Filters** button in the list toolbar, which opens a right-hand
+  drawer listing every filter vertically — Django admin's filter
+  column, in the drawer form Unfold gives it. Each choice is a link
+  that toggles one filter while preserving the others, so filtering
+  works with JS off, and the trigger carries a count of how many are
+  currently applied. One trigger stays one trigger however many filters
+  a `ModelAdmin` declares.
+- Any column in `list_display` is sortable by clicking its header;
+  `?sort=name` / `?sort=-name` for ascending/descending.
+
+All three compose: the query pipeline applies search, then every
+active filter, then ordering, then pagination — in that order, every
+time, so a query string fully determines what's on screen (and what
+an export produces, see [`exports.md`](exports.md)).
+
+`enable_reordering` (default `False`, unlike the `can_*` flags above)
+puts a drag handle on the list view's rows via a small vanilla sortable
+library (SortableJS, `theme.html`). Unlike everything else on this page,
+dragging never persists anywhere — it only reorders the `<tr>` elements
+already on the current page, and reverts on the next reload, sort,
+search, or page change re-rendering the table from the server's real
+order. It's for triaging a list by hand, not for maintaining a stored
+position; an application wanting persisted ordering needs its own
+position field and its own way of writing to it (there's no framework
+hook for this, since it can't presume your schema).
+
+## Relations
+
+A `ForeignKeyField` (or `OneToOneField`) needs a `Relation`: which
+target `ModelAdmin` slug it points at and which of the target's fields
+to use as the display label. By default it renders as a shadcn Select
+(`ui/select.html`) populated from the target's full queryset on the
+form, and as a link (if the viewer can see the target resource,
+otherwise plain text) on the list/detail views.
+
+Add the field's name to `autocomplete_fields` to switch the form input
+to a searchable shadcn/ui Combobox-style combobox instead, backed by
+`GET /{slug}/lookup?q=...` — the target's full queryset is never loaded
+into the page, only whatever the search matches (up to 20 results) plus
+the current selection. Use this for any relation whose target could
+grow large, or where dumping the whole list would leak more than the
+viewer should see.
+
+A `ManyToManyField` renders as a searchable multi-select
+(`ui/multi-select.html`): a Command-style list you can type at, with the
+current selection as removable chips — the same job Django admin's
+`filter_horizontal` permissions widget does. Its filtering is
+client-side, because a many-to-many's options are already in the page in
+full; that also means it is *not* the control for a target with
+thousands of rows (there is no many-to-many equivalent of
+`autocomplete_fields` yet). It posts one value per selection under the
+field's own name, exactly as a `<select multiple>` did, so nothing on
+the server side changes.
+
+A relation's *reverse* side — showing/managing a child's records from
+the parent's own create/detail/edit pages, Django-admin
+StackedInline/TabularInline style — is `Inline`. See
+[`inlines.md`](inlines.md).
+
+### Id-based and HTTP-backed models
+
+A `ForeignKeyField`'s value is the related **object**, resolved through
+`Relation.get_related` (default: the attribute of the same name). A row that
+only stores an id -- typical of a model read over HTTP -- can still show a
+label and link, without a fetch per row, by returning a small stand-in from
+`get_related`, built from data already on the row:
+
+```python
+@dataclass
+class Ref:
+    id: int
+    name: str
+
+Relation(
+    "employee_id",
+    target="employees",
+    display_field="name",
+    get_related=lambda row: Ref(id=row.employee_id, name=row.employee_name),
+)
+```
+
+The stand-in only needs the target's primary key and the `display_field`
+attribute. Have the backend return the label with the row. This applies to
+every place the field's value is read -- list and detail pages, the edit
+form's preselected option, inline rows and exports -- and the field's own name
+is still the key in the `data` your `create` receives, so an id-based row can
+name the field after its id column (`employee_id`) and read `data["employee_id"]`.
+
+## Actions
+
+An action is a `ModelAdmin` method decorated with `@action`. Record actions
+(the detail page) and bulk actions (the list view's row-selection) share one
+shape:
+
+```python
+from collections.abc import Sequence
+
+from polyadmin.core.action import action
+from polyadmin.core.auth import Principal
+
+class UserAdmin(ModelAdmin):
+    @action(label="Deactivate", confirm="Deactivate the selected users?")
+    def deactivate(self, objects: Sequence[User], principal: Principal | None) -> str | None:
+        for obj in objects:
+            obj.is_active = False
+        return f"Deactivated {len(objects)} user(s)."  # flash message text
+```
+
+The method is always called with a list of objects — one for a detail-page
+record action, as many as were checked for a bulk action — so it never
+needs to know which UI entry point invoked it. The method's name is the
+action's name. On the list view, picking one from the bulk-actions listbox
+runs it immediately — there's no separate "Apply" step. `confirm=` shows a
+shadcn/ui Dialog before the request goes out; `permission=` checks an extra
+`{slug}.{permission}` permission (see [`permissions.md`](permissions.md))
+beyond the resource's own `.view`; `label=` defaults to the method name,
+title-cased. The return value (a string, or `None`) becomes the success
+toast text, falling back to `"{label} applied to N record(s)."` when empty.
+
+`@action` works bare (`@action`) or with options. The options are
+keyword-only: `label=`, `confirm=`, `permission=` and `where=`.
+
+A method may also be `async def` -- useful for one that calls out to an
+async client, such as pushing the selected records to an external system.
+The adapter awaits it when it is one.
+
+Actions are collected in the order they are defined, base classes first. A
+subclass that overrides an action method **without** decorating it again
+keeps the base's label, confirm text, permission and placement and only
+changes what it does; decorating it again replaces all of those options.
+
+The built-in **`delete_selected`** is an action too, defined on `ModelAdmin`
+and always listed last. Override the method to change the deletion; repeat
+`@action(...)` on the override to change its label or confirm text (and
+repeat `permission="delete"` if you still want that check). It is the one
+exception to the Dialog: on a ModelAdmin that implements `delete_preview`
+it opens a server-rendered confirmation page instead, listing the selected
+records and what deleting them takes with it — see
+[`deletes.md`](deletes.md). That applies to an override of your own too:
+the page is keyed on the name.
+
+### Where an action appears
+
+`where=` places an action: `"list"` (the bulk bar only), `"detail"` (one
+record's page only) or `"both"`, the default. A ModelAdmin can also set
+`detail_actions`, an ordered list of action names that **replaces** the
+`where` default for its detail page:
+
+```python
+class UserAdmin(ModelAdmin):
+    detail_actions = ["deactivate", "export_badge"]  # [] offers none
+
+    @action
+    def activate(self, objects: Sequence[User], principal: Principal | None) -> str | None: ...
+
+    @action
+    def deactivate(self, objects: Sequence[User], principal: Principal | None) -> str | None: ...
+
+    @action(where="detail")
+    def export_badge(self, objects: Sequence[User], principal: Principal | None) -> str | None: ...
+```
+
+Naming an action that `where="list"` would hide is fine: the explicit
+list wins. A name that matches no action fails when the `Admin` is
+built. `detail_actions` only decides which buttons the detail page shows;
+the list page is unaffected.
+
+The built-in `delete_selected` is bulk-only. It never appears on a detail
+page, even when named in `detail_actions` or overridden. It is removed
+entirely by `disable_delete_selected = True` or `can_delete = False`,
+however it is defined.
+
+Placement is not authorization: hiding a button does not stop a request
+to `POST /{slug}/actions/{name}`. Restrict who may run an action with
+`permission=`.
+
+### Migrating from `Action(...)`
+
+Earlier versions declared actions as a list of `Action` objects wrapping
+free functions:
+
+```python
+def deactivate(model_admin, objects, principal): ...
+
+class UserAdmin(ModelAdmin):
+    actions = [Action("deactivate", deactivate, confirm="Sure?")]
+```
+
+That form is gone, and a ModelAdmin that still sets `actions` raises a
+`TypeError` when the class is defined. Move each function into the class as
+a method, drop the `model_admin` parameter (it is `self` now), and pass the
+old `Action(...)` options to `@action(...)`. The action's name is now the
+method's name.
+
+## Save as new
+
+`save_as` adds a second submit to the edit form. It saves the
+submitted values as a **new** record and leaves the one being edited
+untouched -- Django's `save_as`:
+
+```python
+class OrganizationAdmin(ModelAdmin):
+    save_as = True
+```
+
+It validates exactly as an update would, needs the principal's create
+permission, and lands on the new record. Inline children are **not**
+copied: they still point at the original, and duplicating a dozen of
+them silently would be a surprise.
+
+## Prepopulated fields
+
+Fill one field from others as they are typed -- a slug from a title:
+
+```python
+class ArticleAdmin(ModelAdmin):
+    prepopulated_fields = {"slug": ["title"]}
+    # Keep the letters as they are instead of transliterating:
+    prepopulated_unicode = ["slug"]
+```
+
+This runs in the browser, on the **create form only**: once a record
+exists its slug is a real identifier, and rewriting it from the title is
+how links rot. Typing in the target detaches it for the rest of the
+form's life, and a value already there is never overwritten.
+
+Slugs transliterate to ASCII by default -- `Café du Coin` becomes
+`cafe-du-coin`, `Привет мир` becomes `privet-mir` -- which is what
+`polyadmin.core.slug.slugify` does server-side, so a script and the
+browser agree. Letters outside the transliteration table drop out, which
+is what `prepopulated_unicode` (and `slugify_unicode`) is for.
+
+Nothing is slugified on the server and uniqueness is not checked: this
+is a convenience, not a constraint.
+
+## Templates
+
+`list_template`/`detail_template`/`form_template`/`delete_template` name
+an explicit template for one view. See
+[`templates.md`](templates.md) for the full override resolution order.

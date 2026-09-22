@@ -1,19 +1,21 @@
 # PolyAdmin
 
-PolyAdmin is a server-rendered, Django-admin-style framework for building
-internal tools with the language and web stack you already use.
+PolyAdmin is a server-rendered operations workspace for building internal
+tools with the language and web stack you already use.
 
 Choose an implementation:
 
-=== "Python / FastAPI"
+=== "Python"
 
-    Use the Python implementation when your application runs on FastAPI.
-    Start with the [Python getting started guide](python/index.md).
+  Use the Python implementation with the web framework and ORM of your
+  choice. The current getting started guide uses FastAPI.
+  Start with the [Python getting started guide](python/index.md).
 
-=== "Go / Fiber"
+=== "Go"
 
-    Use the Go implementation when your application runs on Fiber. Start with
-    the [Go getting started guide](go/index.md).
+  Use the Go implementation with the web framework and ORM of your choice.
+  The current getting started guide uses Fiber. Start with the [Go getting
+  started guide](go/index.md).
 
 Both implementations share the same design:
 

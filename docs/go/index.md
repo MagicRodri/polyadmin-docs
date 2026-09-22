@@ -1,6 +1,7 @@
-# Go / Fiber
+# Go
 
-The Go implementation mounts go-polyadmin into a Fiber application.
+The Go implementation provides the core admin experience for Go applications.
+The current web adapter mounts go-polyadmin into Fiber.
 
 ## Install from Git
 

@@ -1,5 +1,5 @@
 site_name: PolyAdmin
-site_description: Server-rendered admin frameworks for Python and Go
+site_description: Server-rendered operations workspaces for Python and Go
 site_url: https://magicrodri.github.io/polyadmin-docs/
 repo_url: https://github.com/MagicRodri/polyadmin-docs
 docs_dir: docs
@@ -42,7 +42,7 @@ nav:
       - Architecture: concepts/architecture.md
       - Model administration: concepts/model-admin.md
       - Frontend and theming: concepts/frontend.md
-  - Python / FastAPI:
+  - Python:
       - Getting started: python/index.md
       - Architecture: architecture.md
       - Model admin: model-admin.md
@@ -56,7 +56,7 @@ nav:
       - Exports: exports.md
       - Internationalization: i18n.md
       - Templates and components: templates.md
-  - Go / Fiber:
+  - Go:
       - Getting started: go/index.md
       - Architecture: go/reference/architecture.md
       - Model admin: go/reference/model-admin.md

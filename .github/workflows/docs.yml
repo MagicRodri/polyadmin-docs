@@ -49,6 +49,7 @@ jobs:
           for page in architecture audit authentication dashboard deletes exports i18n inlines lists model-admin permissions routing templates; do
             cp "sources/python/docs/${page}.md" "docs/${page}.md"
           done
+          cp sources/python/docs/sqlalchemy.md docs/python/sqlalchemy.md
           mkdir -p docs/go/reference
           cp -R sources/go/docs/. docs/go/reference/
           rm -f docs/components.md docs/go/reference/components.md

@@ -44,6 +44,7 @@ nav:
       - Frontend and theming: concepts/frontend.md
   - Python:
       - Getting started: python/index.md
+      - SQLAlchemy: python/sqlalchemy.md
       - Architecture: architecture.md
       - Model admin: model-admin.md
       - Dashboard: dashboard.md

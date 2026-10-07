@@ -130,7 +130,7 @@ actually needs to render.
 ## Styling
 
 The design system is [shadcn/ui](https://ui.shadcn.com), hand-ported to
-Alpine.js — see the [shared frontend guide](concepts/frontend.md) for the full component
+Alpine.js — see [`components`](concepts/frontend.md) for the full component
 list and the porting rationale. In short:
 
 - **Colors are tokens, never literals.** `bg-background`,

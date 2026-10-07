@@ -32,7 +32,7 @@ the whole site, and branding (`site_title`, `site_logo_url`). It owns
 no HTTP concerns either — mounting it onto a real router is the
 adapter's job.
 
-**The adapter** (`polyadmin.fastapi`) is the only layer that knows
+**The adapter** (`polyadmin.contrib.fastapi`) is the only layer that knows
 about HTTP. `create_router(admin, base_path=...)` walks the `Admin`'s
 registry and builds routes for each
 viewable/creatable/updatable/deletable/exportable `ModelAdmin`, wires
@@ -99,6 +99,6 @@ validation redisplay). Tailwind, Alpine (plus its focus/collapse/anchor
 plugins), and HTMX are all CDN-loaded — there is no frontend build
 step.
 
-See the [shared frontend guide](concepts/frontend.md) for the component reference and the
+See [`components`](concepts/frontend.md) for the component reference and the
 porting rationale, and [`templates`](templates.md#styling) for how to
 retheme.

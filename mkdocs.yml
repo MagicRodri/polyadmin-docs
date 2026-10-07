@@ -70,5 +70,6 @@ nav:
       - Actions and deletes: go/reference/deletes.md
       - Bulk editing: go/reference/bulk-edit.md
       - Exports: go/reference/exports.md
+      - GORM: go/reference/gorm.md
       - Internationalization: go/reference/i18n.md
       - Templates and components: go/reference/templates.md

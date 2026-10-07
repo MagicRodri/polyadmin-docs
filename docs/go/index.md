@@ -6,8 +6,13 @@ The current web adapter mounts go-polyadmin into Fiber.
 ## Install from Git
 
 ```bash
-go get github.com/MagicRodri/go-polyadmin
+go get github.com/MagicRodri/go-polyadmin                # core
+go get github.com/MagicRodri/go-polyadmin/contrib/fiber  # Fiber adapter
+go get github.com/MagicRodri/go-polyadmin/contrib/gorm   # GORM model admin
 ```
+
+The Fiber adapter is its own Go module, so applications that don't use Fiber
+never download it.
 
 ## First steps
 

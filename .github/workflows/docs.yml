@@ -3,8 +3,6 @@ name: Deploy documentation
 on:
   push:
     branches: [main]
-  schedule:
-    - cron: "17 3 * * *"
   repository_dispatch:
     types: [source-docs-updated]
   workflow_dispatch:

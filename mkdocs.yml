@@ -44,7 +44,6 @@ nav:
       - Frontend and theming: concepts/frontend.md
   - Python:
       - Getting started: python/index.md
-      - SQLAlchemy: python/sqlalchemy.md
       - Architecture: architecture.md
       - Model admin: model-admin.md
       - Dashboard: dashboard.md
@@ -56,6 +55,7 @@ nav:
       - Actions and deletes: deletes.md
       - Bulk editing: bulk-edit.md
       - Exports: exports.md
+      - SQLAlchemy: python/sqlalchemy.md
       - Internationalization: i18n.md
       - Templates and components: templates.md
   - Go:
